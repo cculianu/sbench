@@ -75,6 +75,7 @@ int main(int argc, char **argv)
             if (unlink(p.outfile.c_str())) {
                 std::cerr << "Failed to remove file " << p.outfile << std::endl;
             } else {
+                p.outfileCreated = false;
                 std::cerr << "(Removed " << p.outfile << ")" << std::endl;
             }
         }
