@@ -14,28 +14,31 @@
 #include <unistd.h>
 
 namespace {
+    // define some constants we use
     constexpr size_t MB = 1024*1024;
     constexpr size_t BUFSZ = MB;
-    const char * VER = "1.0";
+    const char *VER = "1.0"; // program version
 
-    volatile bool interrupted = false;
+    volatile bool interrupted = false; // flag set when SIGINT received
 
-    struct Params {
+    struct Context
+    {
         std::string outfile;
         size_t mb = 2*1024;  // 2 GB default size
-        bool valid = false, created = false;
+        bool valid = false, outfileCreated = false;
 
         operator bool() const { return valid; }
     };
 
-    Params parseArgs(int argc, const char * const * argv);
+    Context parseArgs(int argc, const char * const * argv);
 
     // returns relative time since program start in seconds (uses high precision clock)
     double getTime();
 
-    int doRead(const Params & p);
-    int doWrite(Params & p);
+    int doRead(const Context & p);
+    int doWrite(Context & p);
 
+    // Kind of like Go's "defer" statement. Call a functor (for clean-up code) at scope end.
     struct Defer
     {
         std::function<void(void)> func;
@@ -55,7 +58,7 @@ namespace {
 
 int main(int argc, char **argv)
 {
-    Params p = parseArgs(argc, argv);
+    Context p = parseArgs(argc, argv);
 
     if ( ! p ) {
         return 1;
@@ -68,7 +71,7 @@ int main(int argc, char **argv)
     ::signal(SIGHUP, sigHandler);
 
     Defer defer_RmOutfile([&p]{
-        if (p.created) {
+        if (p.outfileCreated) {
             if (unlink(p.outfile.c_str())) {
                 std::cerr << "Failed to remove file " << p.outfile << std::endl;
             } else {
@@ -89,7 +92,7 @@ int main(int argc, char **argv)
 
 namespace {
 
-    int doRead(const Params & p)
+    int doRead(const Context & p)
     {
         std::cout << "Running /usr/sbin/purge with sudo (clearing read cache)..." << std::endl;
         // purge command clears read caches
@@ -134,7 +137,7 @@ namespace {
         if (count) {
             const double elapsed = getTime() - t0;
             const double n_MB = count/double(MB);
-            std::cout << "took " << std::fixed << std::setprecision(3) << elapsed << " secs (" << (n_MB/elapsed) << " MB/sec)" << std::endl;
+            std::cout << "took " << std::fixed << std::setprecision(3) << elapsed << " secs (" << std::setprecision(2) << (n_MB/elapsed) << " MB/sec)" << std::endl;
         } else {
             std::cerr << "Error reading!" << std::endl;
             return 20;
@@ -143,7 +146,7 @@ namespace {
         return 0;
     }
 
-    int doWrite(Params & p)
+    int doWrite(Context & p)
     {
         const size_t N = p.mb * MB;
 
@@ -159,7 +162,7 @@ namespace {
 
         try {
             ostrm.open(p.outfile, std::ios::binary | std::ios::out | std::ios::trunc);
-            p.created = true;
+            p.outfileCreated = true;
 
             auto buf = std::make_unique<char[]>(BUFSZ); // we allocate data on the heap, BUFSZ bytes
 
@@ -202,9 +205,9 @@ namespace {
         return 0;
     }
 
-    Params parseArgs(int argc, const char * const * argv)
+    Context parseArgs(int argc, const char * const * argv)
     {
-        Params p;
+        Context p;
 
         auto Inner = [&]() -> bool {
 
