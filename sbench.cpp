@@ -18,7 +18,7 @@ namespace {
     // define some constants we use
     constexpr size_t MB = 1024*1024;
     constexpr size_t BUFSZ = MB;
-    const char *VER = "1.1"; // program version
+    const char *VER = "1.2"; // program version
 
     volatile bool interrupted = false; // flag set when SIGINT received
 
@@ -184,11 +184,12 @@ namespace {
             {   // assign random data to buf
                 std::cout << "Generating random data..." << std::flush;
                 double t0 = getTime();
-                std::default_random_engine rd;
+                std::mt19937_64 rgen;
+                rgen.seed(std::chrono::system_clock::now().time_since_epoch().count());
                 std::uniform_int_distribution<std::uint64_t> dist(0);
                 std::uint64_t *words = reinterpret_cast<std::uint64_t *>(buf.get());
                 for (size_t i = 0; i < BUFSZ/sizeof(*words); ++i) {
-                    words[i] = dist(rd);
+                    words[i] = dist(rgen);
                 }
                 std::cout << "took " << std::fixed << std::setprecision(3) << (getTime()-t0) << " seconds" << std::endl;
             }
