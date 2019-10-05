@@ -224,7 +224,7 @@ namespace {
                 }
             };
 
-            if (argc < 2) {
+            if (argc < 2 || argc > 3) {
                 usage();
                 return false;
             }
