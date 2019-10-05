@@ -213,7 +213,7 @@ namespace {
         auto Inner = [&]() -> bool {
 
             auto usage = [argc, argv](bool showBanner = true) {
-                const char *progname = argc ? argv[0] : "wrdata";
+                const char *progname = argc ? argv[0] : "sbench";
                 if (showBanner) {
                     std::cerr << "OSX Simple SSD Benchmark " << VER << std::endl;
                     std::cerr << "© 2019 Calin Culianu <calin.culianu@gmail.com>" << std::endl << std::endl;
