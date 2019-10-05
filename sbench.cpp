@@ -2,8 +2,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -11,13 +11,14 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
     // define some constants we use
     constexpr size_t MB = 1024*1024;
     constexpr size_t BUFSZ = MB;
-    const char *VER = "1.0"; // program version
+    const char *VER = "1.1"; // program version
 
     volatile bool interrupted = false; // flag set when SIGINT received
 
@@ -156,23 +157,36 @@ namespace {
             return 2;
         }
 
-        std::ofstream ostrm;
-        ostrm.exceptions(std::ofstream::failbit | std::ofstream::badbit); // throw on open or write failure
+        struct MyFailure : public std::runtime_error {
+            using std::runtime_error::runtime_error; // explicitly inherit c'tor
+        };
 
         double t0; // starts off uninitialized but will be initialized once we begin writing below...
 
         try {
-            ostrm.open(p.outfile, std::ios::binary | std::ios::out | std::ios::trunc);
+            int fd = ::open(p.outfile.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, S_IRUSR | S_IWUSR);
+            if (fd < 0)
+                throw MyFailure("cannot open file for writing");
             p.outfileCreated = true;
+
+            Defer defered_close([&fd]{
+                if (fd >= 0) {
+                    ::close(fd);
+                    fd = -1;
+                }
+            });
+
+            if (::fcntl(fd, F_NOCACHE, 1))
+                throw MyFailure("failed to disable write caching");
 
             auto buf = std::make_unique<char[]>(BUFSZ); // we allocate data on the heap, BUFSZ bytes
 
             {   // assign random data to buf
                 std::cout << "Generating random data..." << std::flush;
                 double t0 = getTime();
-                std::random_device rd;
-                std::uniform_int_distribution<uint64_t> dist(0);
-                uint64_t *words = reinterpret_cast<uint64_t *>(buf.get());
+                std::default_random_engine rd;
+                std::uniform_int_distribution<std::uint64_t> dist(0);
+                std::uint64_t *words = reinterpret_cast<std::uint64_t *>(buf.get());
                 for (size_t i = 0; i < BUFSZ/sizeof(*words); ++i) {
                     words[i] = dist(rd);
                 }
@@ -184,18 +198,17 @@ namespace {
             t0 = getTime(); // mark write start time
 
             for (size_t i = 0; i < N/BUFSZ && !interrupted; ++i) {
-                ostrm.write(buf.get(), BUFSZ);
+                auto n = ::write(fd, buf.get(), BUFSZ);
+                if (n <= 0)
+                    throw MyFailure("write failure");
             }
-            ostrm.flush();
-            ostrm.close();
-        } catch (const std::ios_base::failure &e) {
-            const auto verb = ostrm.is_open() ? "writing to" : "opening";
-            std::cerr << "Error " << verb << " " << p.outfile << " (" << e.what() << ")" << std::endl;
+            if (interrupted)
+                return 99;
+            ::fcntl(fd, F_FULLFSYNC, 1); // wait for write buffers to write back to device.
+        } catch (const MyFailure &e) {
+            std::cerr << "Error on " <<  p.outfile << " (" << e.what() << ")" << std::endl;
             return 3;
         }
-
-        if (interrupted)
-            return 99;
 
         const double elapsed = getTime() - t0;
         const double mbsec = p.mb / elapsed;
